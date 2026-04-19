@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv37/
+
+# Logs
+*.log
+trade_log.csv
+
+# Secrets
+config_lite.json
+
+# Runtime data
+*.json
+!requirements.txt
+
+# SQLite / history
+*.sqlite
+History/
+
+# OS
+.DS_Store
+Thumbs.db

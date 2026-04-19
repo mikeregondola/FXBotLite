@@ -1,0 +1,12 @@
+Config:
+be_ratio = 0.6
+partial = 25
+
+Features:
+- session filter
+- auto close
+- trend filter
+
+Status:
+Ready for demo validation
+
