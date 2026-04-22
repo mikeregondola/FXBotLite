@@ -1,145 +1,142 @@
 import time
-from datetime import datetime, timezone
-
-from trade_logger import TradeLogger
-from strategy_engine import StrategyEngine
 
 
 class TradeManager:
 
-    def __init__(self, driver, telegram=None, config=None):
+    def __init__(self, driver, telegram=None):
         self.driver = driver
         self.telegram = telegram
-        self.config = config
-
         self.trades = []
-        self.logger = TradeLogger()
-        self.engine = StrategyEngine(config)
 
-        self.BE_BUFFER_PIPS = config["strategy"]["be_buffer_pips"]
-        self.PARTIAL_CLOSE_RATIO = config["strategy"]["partial_close_ratio"]
+        # --- CONFIG ---
+        self.BE_RATIO = 0.5            # 50% of SL distance
+        self.BE_BUFFER_PIPS = 2        # lock small profit
+        self.TRAIL_TRIGGER_PIPS = 15
+        self.TRAIL_DISTANCE_PIPS = 10
 
-    # ----------------------------
-    # SESSION CHECK
-    # ----------------------------
-    def is_session_open(self):
-
-        if not self.config.get("session", {}).get("enabled", False):
-            return True
-
-        now = datetime.now(timezone.utc)
-        hour = now.hour
-
-        start = self.config["session"]["start_hour_utc"]
-        end = self.config["session"]["end_hour_utc"]
-
-        return start <= hour < end
-
-    # ----------------------------
-    # CLOSE ALL TRADES
-    # ----------------------------
-    def close_all_trades(self):
-
-        print("[SESSION] Closing all trades...")
-
-        for trade in list(self.trades):
-            try:
-                self.driver.close_trade(trade)
-
-                if self.telegram:
-                    self.telegram.send_message(
-                        f"🔚 Session Close\n{trade['symbol']} {trade['side']} closed",
-                        chat_id=trade.get("chat_id")
-                    )
-
-                self.trades.remove(trade)
-
-            except Exception as e:
-                print("[SESSION CLOSE ERROR]", e)
-
-    # ----------------------------
+    # --------------------------------------------------
     # TRACK NEW TRADE
-    # ----------------------------
+    # --------------------------------------------------
     def track_trade(self, trade):
 
-        trade = self.engine.init_trade(trade)
-        trade["open_time"] = datetime.now()
+        trade["be_done"] = False
+
+        # 🔥 Store initial SL distance (for adaptive BE)
+        trade["initial_sl_pips"] = abs(
+            (trade["entry"] - trade["sl"]) * 10000
+        )
 
         self.trades.append(trade)
 
-        print(f"[TM] Trade tracked: {trade['symbol']}")
+        print("[TM] New trade tracked")
 
-    # ----------------------------
-    # CHECK IF TRADE STILL OPEN
-    # ----------------------------
-    def is_trade_open(self, trade):
+    # --------------------------------------------------
+    # CALCULATE PIPS
+    # --------------------------------------------------
+    def calculate_pips(self, entry, price, side):
+
+        if side == "BUY":
+            return (price - entry) * 10000
+        else:
+            return (entry - price) * 10000
+
+    # --------------------------------------------------
+    # MODIFY SL
+    # --------------------------------------------------
+    def update_sl(self, trade, new_sl):
+
+        if trade["side"] == "BUY" and new_sl <= trade["sl"]:
+            return
+
+        if trade["side"] == "SELL" and new_sl >= trade["sl"]:
+            return
 
         try:
-            trades = self.driver.fx.get_table(self.driver.fx.TRADES)
-            return any(t.trade_id == trade.get("trade_id") for t in trades)
-        except:
-            return False
+            self.driver.modify_sl(trade, new_sl)
+            trade["sl"] = new_sl
 
-    # ----------------------------
+            print(f"[TM] SL updated → {new_sl}")
+
+            if self.telegram:
+                self.telegram.send_message(
+                    f"🔄 SL Updated\n{trade['symbol']}\nNew SL: {new_sl}"
+                )
+
+        except Exception as e:
+            print(f"[TM ERROR] SL update failed: {e}")
+
+    # --------------------------------------------------
     # MONITOR LOOP
-    # ----------------------------
+    # --------------------------------------------------
     def monitor(self):
 
         while True:
 
-            # -------- SESSION CLOSE --------
-            if not self.is_session_open():
-
-                if len(self.trades) > 0:
-                    self.close_all_trades()
-
-                time.sleep(60)
-                continue
-
             for trade in list(self.trades):
 
                 try:
-                    # -------- CLOSED --------
-                    if not self.is_trade_open(trade):
+                    # 🔥 FIX: get mid price
+                    price_data = self.driver.get_price(trade["symbol"])
 
-                        price = self.driver.get_price(trade["symbol"])["mid"]
-
-                        pips = self.engine.calculate_pips(
-                            trade["entry"],
-                            price,
-                            trade["side"]
-                        )
-
-                        profit = self.driver.get_profit(trade)
-
-                        self.logger.log_trade(trade, price, pips, profit)
-
-                        if self.telegram:
-                            self.telegram.send_message(
-                                f"❌ Trade Closed\n"
-                                f"{trade['symbol']} {trade['side']}\n"
-                                f"Pips: {pips:.1f} | Profit: {profit:.2f}",
-                                chat_id=trade.get("chat_id")
-                            )
-
-                        self.trades.remove(trade)
+                    if not price_data:
                         continue
 
-                    # -------- LIVE --------
-                    price = self.driver.get_price(trade["symbol"])["mid"]
+                    price = price_data["mid"]
 
-                    result = self.engine.process_tick(trade, price)
+                    profit = self.driver.get_profit(trade)
 
-                    if result["action"] == "BE":
-                        self.driver.modify_sl(trade, result["new_sl"])
-                        trade["sl"] = result["new_sl"]
-                        print("[TM] BE triggered")
+                    pips = self.calculate_pips(
+                        trade["entry"],
+                        price,
+                        trade["side"]
+                    )
 
-                    if result["action"] == "PARTIAL":
-                        self.driver.partial_close(trade, self.PARTIAL_CLOSE_RATIO)
-                        print("[TM] Partial executed")
+                    print(
+                        f"[TM DEBUG] {trade['symbol']} | "
+                        f"Pips: {pips:.1f} | Profit: {profit:.2f}"
+                    )
+
+                    # ================= BE =================
+                    if not trade["be_done"]:
+
+                        be_trigger = trade["initial_sl_pips"] * self.BE_RATIO
+
+                        if pips >= be_trigger:
+
+                            buffer = self.BE_BUFFER_PIPS / 10000
+
+                            if trade["side"] == "BUY":
+                                new_sl = trade["entry"] + buffer
+                            else:
+                                new_sl = trade["entry"] - buffer
+
+                            self.update_sl(trade, new_sl)
+
+                            trade["be_done"] = True
+
+                            print("[TM] Adaptive BE triggered")
+
+                            if self.telegram:
+                                self.telegram.send_message(
+                                    f"🟢 Adaptive BE\n{trade['symbol']}\nSL moved to BE+"
+                                )
+
+                    # ================= TRAILING =================
+                    elif trade["be_done"]:
+
+                        if pips >= self.TRAIL_TRIGGER_PIPS:
+
+                            if trade["side"] == "BUY":
+                                new_sl = price - (self.TRAIL_DISTANCE_PIPS / 10000)
+                            else:
+                                new_sl = price + (self.TRAIL_DISTANCE_PIPS / 10000)
+
+                            self.update_sl(trade, new_sl)
+
+                            print("[TM] Trailing SL updated")
 
                 except Exception as e:
-                    print("[TM ERROR]", e)
+                    print(f"[TM ERROR] {e}")
 
             time.sleep(2)
+
