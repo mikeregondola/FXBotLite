@@ -1,7 +1,7 @@
 {
   "mode": "paper",
   "broker": "fxcm",
-  "trade_enabled": false,
+  "trade_enabled": False,
 
   "allowed_symbols": ["GBPUSD"],
 

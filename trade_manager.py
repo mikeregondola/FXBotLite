@@ -101,7 +101,7 @@ class TradeManager:
 
                         be_trigger = trade["initial_sl_pips"] * self.BE_RATIO
 
-                        if pips >= be_trigger:
+                        if pips >= 0.3:
 
                             buffer = self.BE_BUFFER_PIPS / 10000
 

@@ -1,5 +1,6 @@
-import time
 import threading
+import json
+import requests
 from flask import Flask, request, jsonify
 
 from broker_engine.fxcm_driver import FXCMDriver
@@ -10,25 +11,67 @@ from trade_manager import TradeManager
 # ----------------------------
 app = Flask(__name__)
 
-config = {
-    "username": "...",
-    "password": "...",
-    "url": "http://www.fxcorporate.com/Hosts.jsp",
-    "connection": "Demo"
-}
+# ----------------------------
+# LOAD CONFIG
+# ----------------------------
+try:
+    with open("config_lite.json") as f:
+        CONFIG = json.load(f)
 
-driver = FXCMDriver(config)
-trade_manager = TradeManager(driver)
+    broker_config = CONFIG.get("broker", {})
+    telegram_config = CONFIG.get("telegram", {})
+
+    print("[DEBUG] Config loaded successfully")
+
+except Exception as e:
+    print("[ERROR] Failed to load config:", e)
+    broker_config = None
+    telegram_config = {}
 
 # ----------------------------
-# START TRADE MANAGER LOOP
+# TELEGRAM FUNCTION
 # ----------------------------
-def start_tm():
-    trade_manager.monitor()
+def send_telegram(message):
+    try:
+        token = telegram_config.get("token")
+        chat_id = telegram_config.get("chat_id")
 
-threading.Thread(target=start_tm, daemon=True).start()
+        if not token or not chat_id:
+            print("[TG] Missing config")
+            return
 
-print("[LITE] TradeManager started")
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+        response = requests.post(url, json={
+            "chat_id": chat_id,
+            "text": message
+        })
+
+        print("[TG SEND STATUS]", response.status_code)
+
+    except Exception as e:
+        print("[TG ERROR]", e)
+
+# ----------------------------
+# INIT DRIVER + TRADE MANAGER
+# ----------------------------
+driver = None
+trade_manager = None
+
+if broker_config:
+    driver = FXCMDriver(broker_config)
+    trade_manager = TradeManager(driver)
+
+    # Start TradeManager loop
+    def run_tm():
+        trade_manager.monitor()
+
+    threading.Thread(target=run_tm, daemon=True).start()
+
+    print("[LITE] TradeManager started")
+
+else:
+    print("[FATAL] Broker config missing")
 
 # ----------------------------
 # SIGNAL ENDPOINT
@@ -36,20 +79,19 @@ print("[LITE] TradeManager started")
 @app.route("/signal", methods=["POST"])
 def signal():
 
-    data = request.json
+    if not driver:
+        return jsonify({"status": "no_driver"})
 
+    data = request.json
     print("[DEBUG] Incoming signal:", data)
 
     result = driver.execute_trade(data)
 
     if result:
         try:
+            # Get entry price
             price_data = driver.get_price(data["symbol"])
-
-            if not price_data:
-                return jsonify({"status": "no_price"})
-
-            entry_price = price_data["mid"]
+            entry_price = price_data["mid"] if price_data else 0
 
             trade = {
                 "symbol": data["symbol"],
@@ -58,15 +100,43 @@ def signal():
                 "sl": data.get("sl", entry_price)
             }
 
-            # 🔥 CRITICAL FIX (this was missing)
-            trade_manager.track_trade(trade)
+            # Track trade
+            if trade_manager:
+                trade_manager.track_trade(trade)
 
-            print("[DEBUG] Trade passed to TradeManager")
+            # Telegram message
+            send_telegram(
+                f"🚀 Trade Executed\n"
+                f"{trade['symbol']} {trade['side']}\n"
+                f"Entry: {entry_price}\n"
+                f"SL: {trade['sl']}"
+            )
 
         except Exception as e:
-            print("[ERROR] Trade tracking failed:", e)
+            print("[ERROR] Post-trade handling failed:", e)
 
     return jsonify({"status": "ok"})
+
+# ----------------------------
+# STATUS ENDPOINT
+# ----------------------------
+@app.route("/status", methods=["GET"])
+def status():
+    return jsonify({
+        "driver": "connected" if driver else "not_initialized",
+        "trade_manager": "running" if trade_manager else "not_initialized"
+    })
+
+# ----------------------------
+# HEARTBEAT (OPTIONAL)
+# ----------------------------
+def heartbeat():
+    import time
+    while True:
+        print("[LITE] Alive | running")
+        time.sleep(10)
+
+threading.Thread(target=heartbeat, daemon=True).start()
 
 # ----------------------------
 # RUN SERVER
