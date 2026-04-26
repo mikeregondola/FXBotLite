@@ -1,44 +1,51 @@
 import streamlit as st
+import pandas as pd
+import json
 
-st.title("FXBot SmartWave")
+st.markdown("""<meta http-equiv="refresh" content="10">""", unsafe_allow_html=True)
 
-st.subheader("Elliott Wave–Driven Forex Signals")
+def load_signals():
+    try:
+        with open("signals_live.json", "r") as f:
+            return json.load(f)
+    except:
+        return []
 
-st.write("""
-Automated forex signals based on:
-- Market structure (HH/HL)
-- Break of Structure (BOS)
-- Multi-timeframe analysis (M15 / H1)
-""")
+st.set_page_config(page_title="FXBot Dashboard", layout="centered")
 
-st.markdown("---")
+st.title("📈 FXBot SmartWave")
 
-st.header("Features")
-st.write("""
-✔ Auto SL / TP  
-✔ Break-even protection  
-✔ Elliott-based trailing  
-✔ Risk-based execution  
-""")
+# ---------------- PERFORMANCE
+st.header("📊 Performance Summary")
 
-st.markdown("---")
+signals = load_signals()
 
-st.header("Plans")
-st.write("""
-**Basic** – Signals only  
-**Pro** – Signals + Automation  
-""")
+if signals:
+    total = len(signals)
+    wins = sum(1 for s in signals if "TP" in s["status"])
+    losses = sum(1 for s in signals if "SL" in s["status"])
+    pnl = sum(s.get("pnl", 0) for s in signals)
+    win_rate = (wins / total * 100) if total else 0
 
-st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Trades", total)
+    col2.metric("Win Rate", f"{win_rate:.1f}%")
+    col3.metric("Total PnL", f"{pnl:.2f}")
 
-st.header("How to Subscribe")
-st.write("""
-1. Open the Telegram bot  
-2. Choose your plan  
-3. Send GCash payment  
-4. Get activated  
-""")
+# ---------------- TABLE
+st.header("📡 Signals")
+if signals:
+    st.dataframe(pd.DataFrame(signals), use_container_width=True)
 
-st.markdown("---")
-
-st.markdown("👉 Start here: https://t.me/StructuraFX_bot")
+# ---------------- FEED
+st.header("⚡ Activity")
+for s in signals[:10]:
+    txt = f"{s['time']} | {s['symbol']} {s['side']} → {s['status']}"
+    if "TP" in s["status"]:
+        st.success(txt)
+    elif "SL" in s["status"]:
+        st.error(txt)
+    elif "BE" in s["status"]:
+        st.warning(txt)
+    else:
+        st.write(txt)
