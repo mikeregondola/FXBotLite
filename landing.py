@@ -1,51 +1,115 @@
 import streamlit as st
-import pandas as pd
-import json
 
-st.markdown("""<meta http-equiv="refresh" content="10">""", unsafe_allow_html=True)
+# ----------------------------
+# PAGE CONFIG
+st.set_page_config(page_title="FXBot SmartWave", layout="centered")
 
-def load_signals():
-    try:
-        with open("signals_live.json", "r") as f:
-            return json.load(f)
-    except:
-        return []
-
-st.set_page_config(page_title="FXBot Dashboard", layout="centered")
-
+# ----------------------------
+# HERO SECTION
 st.title("📈 FXBot SmartWave")
 
-# ---------------- PERFORMANCE
-st.header("📊 Performance Summary")
+st.subheader("Elliott Wave–Driven Forex Signals That Remove Guesswork")
 
-signals = load_signals()
+st.write("""
+Trade with structure, not emotion.
 
-if signals:
-    total = len(signals)
-    wins = sum(1 for s in signals if "TP" in s["status"])
-    losses = sum(1 for s in signals if "SL" in s["status"])
-    pnl = sum(s.get("pnl", 0) for s in signals)
-    win_rate = (wins / total * 100) if total else 0
+✔ Multi-timeframe confirmation (M15 / H1)  
+✔ Automated SL / TP + risk control  
+✔ Elliott-based trailing system  
+""")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Trades", total)
-    col2.metric("Win Rate", f"{win_rate:.1f}%")
-    col3.metric("Total PnL", f"{pnl:.2f}")
+st.markdown("👉 **Start here:** https://t.me/StructuraFX_bot")
 
-# ---------------- TABLE
-st.header("📡 Signals")
-if signals:
-    st.dataframe(pd.DataFrame(signals), use_container_width=True)
+st.markdown("---")
 
-# ---------------- FEED
-st.header("⚡ Activity")
-for s in signals[:10]:
-    txt = f"{s['time']} | {s['symbol']} {s['side']} → {s['status']}"
-    if "TP" in s["status"]:
-        st.success(txt)
-    elif "SL" in s["status"]:
-        st.error(txt)
-    elif "BE" in s["status"]:
-        st.warning(txt)
-    else:
-        st.write(txt)
+# ----------------------------
+# PROBLEM SECTION
+st.header("❌ Why Most Traders Lose")
+
+st.write("""
+- Enter too early or too late  
+- No clear structure or trend bias  
+- Emotional decisions  
+- Poor risk management  
+""")
+
+st.markdown("**Result:** Inconsistent profits and blown accounts.")
+
+st.markdown("---")
+
+# ----------------------------
+# SOLUTION
+st.header("✅ What This System Does")
+
+st.write("""
+FXBot SmartWave applies:
+
+✔ Market Structure (HH/HL, BOS)  
+✔ Multi-Timeframe Alignment  
+✔ Elliott Wave-Based Trailing  
+✔ Risk-Controlled Execution  
+""")
+
+st.markdown("---")
+
+# ----------------------------
+# HOW IT WORKS
+st.header("⚙️ How It Works")
+
+st.write("""
+1. Bot detects high-probability setups  
+2. Signal is sent via Telegram  
+3. Trade includes SL + TP  
+4. System manages risk and trailing  
+""")
+
+st.markdown("---")
+
+# ----------------------------
+# TRUST / PROOF (IMPORTANT)
+st.header("📊 What You Can Expect")
+
+st.write("""
+✔ Structured entries (not random signals)  
+✔ Controlled risk per trade  
+✔ Consistency over time  
+""")
+
+st.info("⚠️ This is NOT a get-rich-quick system. It is a disciplined trading approach.")
+
+st.markdown("---")
+
+# ----------------------------
+# PRICING
+st.header("💳 Subscription Plans")
+
+st.write("""
+**Basic**  
+✔ Signals only  
+
+**Pro**  
+✔ Signals  
+✔ Advanced system access  
+✔ Future automation features  
+""")
+
+st.markdown("---")
+
+# ----------------------------
+# CTA (CRITICAL)
+st.header("🚀 Get Started")
+
+st.write("""
+1. Open the Telegram bot  
+2. Choose your plan  
+3. Send GCash payment  
+4. Get activated  
+""")
+
+st.markdown("👉 **Join now:** https://t.me/StructuraFX_bot")
+
+st.markdown("---")
+
+# ----------------------------
+# FINAL PUSH
+st.warning("⚠️ Access may be limited during testing phase.")
